@@ -13,10 +13,10 @@ use ratatui::widgets::{
 use ratatui::Frame;
 
 // Phosphor-green palette
-const GREEN: Color = Color::Rgb(0, 255, 136);      // primary phosphor green
-const DIM_GREEN: Color = Color::Rgb(0, 140, 70);    // dimmed green
-const DARK_GREEN: Color = Color::Rgb(0, 60, 30);    // very dim
-const BRIGHT: Color = Color::Rgb(180, 255, 200);    // bright highlight
+const GREEN: Color = Color::Rgb(0, 255, 200);      // primary cyan-green
+const DIM_GREEN: Color = Color::Rgb(0, 128, 100);    // dimmed cyan-green
+const DARK_GREEN: Color = Color::Rgb(0, 50, 40);    // very dim
+const BRIGHT: Color = Color::Rgb(160, 255, 230);    // bright highlight
 const CYAN: Color = Color::Rgb(0, 220, 220);
 const YELLOW: Color = Color::Rgb(220, 220, 0);
 const RED: Color = Color::Rgb(255, 80, 80);
