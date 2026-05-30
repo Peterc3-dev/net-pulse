@@ -7,20 +7,18 @@ use crate::tailscale::PeerStatus;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, Borders, Cell, Paragraph, Row, Sparkline, Table, Tabs, Wrap,
-};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Sparkline, Table, Tabs, Wrap};
 use ratatui::Frame;
 
 // Phosphor-green palette
-const GREEN: Color = Color::Rgb(0, 255, 200);      // primary cyan-green
-const DIM_GREEN: Color = Color::Rgb(0, 128, 100);    // dimmed cyan-green
-const DARK_GREEN: Color = Color::Rgb(0, 50, 40);    // very dim
-const BRIGHT: Color = Color::Rgb(160, 255, 230);    // bright highlight
+const GREEN: Color = Color::Rgb(0, 255, 200); // primary cyan-green
+const DIM_GREEN: Color = Color::Rgb(0, 128, 100); // dimmed cyan-green
+const DARK_GREEN: Color = Color::Rgb(0, 50, 40); // very dim
+const BRIGHT: Color = Color::Rgb(160, 255, 230); // bright highlight
 const CYAN: Color = Color::Rgb(0, 220, 220);
 const YELLOW: Color = Color::Rgb(220, 220, 0);
 const RED: Color = Color::Rgb(255, 80, 80);
-const BG: Color = Color::Rgb(5, 10, 5);             // near-black with green tint
+const BG: Color = Color::Rgb(5, 10, 5); // near-black with green tint
 const HEADER_BG: Color = Color::Rgb(0, 30, 15);
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -35,7 +33,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // tab bar
-            Constraint::Min(10),  // content
+            Constraint::Min(10),   // content
             Constraint::Length(1), // status bar
         ])
         .split(size);
@@ -51,7 +49,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
-    let tabs = vec![Tab::Connections, Tab::Dns, Tab::Tailscale];
+    let tabs = [Tab::Connections, Tab::Dns, Tab::Tailscale];
     let titles: Vec<Line> = tabs
         .iter()
         .map(|t| {
@@ -72,7 +70,11 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let tabs_widget = Tabs::new(titles)
         .select(selected)
-        .highlight_style(Style::default().fg(GREEN).add_modifier(Modifier::BOLD | Modifier::UNDERLINED))
+        .highlight_style(
+            Style::default()
+                .fg(GREEN)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        )
         .divider(Span::styled(" | ", Style::default().fg(DARK_GREEN)))
         .style(Style::default().bg(HEADER_BG));
 
@@ -102,8 +104,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         format_bytes(app.total_tx_rate()),
     );
 
-    let bar = Paragraph::new(status)
-        .style(Style::default().fg(GREEN).bg(HEADER_BG));
+    let bar = Paragraph::new(status).style(Style::default().fg(GREEN).bg(HEADER_BG));
     f.render_widget(bar, area);
 }
 
@@ -125,7 +126,7 @@ fn draw_connections_tab(f: &mut Frame, app: &App, area: Rect) {
 
 fn iface_panel_height(app: &App) -> u16 {
     // 2 for border + 1 per interface, min 3
-    (app.interfaces.len() as u16 + 2).max(3).min(8)
+    (app.interfaces.len() as u16 + 2).clamp(3, 8)
 }
 
 fn sparkline_panel_height(app: &App) -> u16 {
@@ -135,7 +136,7 @@ fn sparkline_panel_height(app: &App) -> u16 {
         .filter(|i| i.state == "up" || i.rx_rate > 0.0 || i.tx_rate > 0.0)
         .count();
     // 2 lines per active interface (rx + tx) + 2 border, min 4
-    ((active * 2 + 2) as u16).max(4).min(14)
+    ((active * 2 + 2) as u16).clamp(4, 14)
 }
 
 fn draw_interfaces(f: &mut Frame, app: &App, area: Rect) {
@@ -254,9 +255,7 @@ fn draw_connection_table(f: &mut Frame, app: &App, area: Rect) {
                 TcpState::CloseWait => Style::default().fg(YELLOW),
                 TcpState::SynSent | TcpState::SynRecv => Style::default().fg(YELLOW),
                 TcpState::FinWait1 | TcpState::FinWait2 => Style::default().fg(YELLOW),
-                TcpState::Close | TcpState::LastAck | TcpState::Closing => {
-                    Style::default().fg(RED)
-                }
+                TcpState::Close | TcpState::LastAck | TcpState::Closing => Style::default().fg(RED),
                 TcpState::Unknown => Style::default().fg(DIM_GREEN),
             };
 
@@ -323,8 +322,7 @@ fn draw_sparklines(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     if active_ifaces.is_empty() || inner.height < 2 {
-        let msg = Paragraph::new("  No active interfaces")
-            .style(Style::default().fg(DIM_GREEN));
+        let msg = Paragraph::new("  No active interfaces").style(Style::default().fg(DIM_GREEN));
         f.render_widget(msg, inner);
         return;
     }
@@ -430,16 +428,16 @@ fn draw_dns_tab(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let mut lines: Vec<Line> = Vec::new();
-
-    lines.push(Line::from(vec![
-        Span::styled("Source: ", Style::default().fg(DIM_GREEN)),
-        Span::styled(
-            &app.dns_config.source,
-            Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
-        ),
-    ]));
-    lines.push(Line::from(""));
+    let mut lines: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled("Source: ", Style::default().fg(DIM_GREEN)),
+            Span::styled(
+                &app.dns_config.source,
+                Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+    ];
 
     lines.push(Line::from(Span::styled(
         "DNS Servers",
@@ -565,12 +563,10 @@ fn draw_tailscale_tab(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(BRIGHT).add_modifier(Modifier::BOLD),
             ),
         ]),
-        Line::from(vec![
-            Span::styled(
-                format!("  Peers: {}", ts.peers.len()),
-                Style::default().fg(DIM_GREEN),
-            ),
-        ]),
+        Line::from(vec![Span::styled(
+            format!("  Peers: {}", ts.peers.len()),
+            Style::default().fg(DIM_GREEN),
+        )]),
     ];
     let info = Paragraph::new(info_lines).style(Style::default().bg(BG));
     f.render_widget(info, chunks[0]);

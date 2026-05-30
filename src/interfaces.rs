@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::net::IpAddr;
 
-
 #[derive(Clone, Debug)]
 pub struct Interface {
     pub name: String,
@@ -147,8 +146,7 @@ pub fn get_interfaces() -> Vec<Interface> {
         let rx_bytes = read_sysfs_u64(&format!("{}/statistics/rx_bytes", base));
         let tx_bytes = read_sysfs_u64(&format!("{}/statistics/tx_bytes", base));
         let ip_addrs = get_interface_ips(&name);
-        let is_tailscale =
-            name.starts_with("tailscale") || name.starts_with("ts") || name == "wg0";
+        let is_tailscale = name.starts_with("tailscale") || name.starts_with("ts") || name == "wg0";
 
         interfaces.push(Interface {
             name,
@@ -213,5 +211,89 @@ pub fn format_total_bytes(bytes: u64) -> String {
         format!("{:.1} KB", bytes as f64 / 1_000.0)
     } else {
         format!("{} B", bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn iface(name: &str, rx: u64, tx: u64) -> Interface {
+        Interface {
+            name: name.to_string(),
+            ip_addrs: Vec::new(),
+            state: "up".to_string(),
+            rx_bytes: rx,
+            tx_bytes: tx,
+            rx_rate: 0.0,
+            tx_rate: 0.0,
+            is_tailscale: false,
+        }
+    }
+
+    #[test]
+    fn format_bytes_picks_unit() {
+        assert_eq!(format_bytes(512.0), "512 B/s");
+        assert_eq!(format_bytes(1_500.0), "1.5 KB/s");
+        assert_eq!(format_bytes(2_000_000.0), "2.0 MB/s");
+        assert_eq!(format_bytes(3_000_000_000.0), "3.0 GB/s");
+    }
+
+    #[test]
+    fn format_total_bytes_picks_unit() {
+        assert_eq!(format_total_bytes(0), "0 B");
+        assert_eq!(format_total_bytes(999), "999 B");
+        assert_eq!(format_total_bytes(1_500), "1.5 KB");
+        assert_eq!(format_total_bytes(5_000_000), "5.0 MB");
+        assert_eq!(format_total_bytes(7_000_000_000), "7.0 GB");
+    }
+
+    #[test]
+    fn parse_hex_ipv6_loopback() {
+        let addr = parse_hex_ipv6("00000000000000000000000000000001").unwrap();
+        assert_eq!(addr, std::net::Ipv6Addr::LOCALHOST);
+    }
+
+    #[test]
+    fn parse_hex_ipv6_rejects_wrong_length() {
+        assert!(parse_hex_ipv6("0001").is_none());
+        assert!(parse_hex_ipv6("zz000000000000000000000000000001").is_none());
+    }
+
+    #[test]
+    fn bandwidth_history_computes_rate_over_two_samples() {
+        let mut hist = BandwidthHistory::new(60);
+        // First update only records the baseline; no rate yet.
+        hist.update(&[iface("eth0", 1_000, 2_000)], 1.0);
+        assert!(hist.history["eth0"].0.is_empty());
+
+        // Second update: +1000 rx, +500 tx over 1 second.
+        hist.update(&[iface("eth0", 2_000, 2_500)], 1.0);
+        assert_eq!(hist.history["eth0"].0, vec![1_000.0]);
+        assert_eq!(hist.history["eth0"].1, vec![500.0]);
+    }
+
+    #[test]
+    fn bandwidth_history_clamps_counter_reset_to_zero() {
+        let mut hist = BandwidthHistory::new(60);
+        hist.update(&[iface("eth0", 5_000, 5_000)], 1.0);
+        // Counter went backwards (interface reset) -> rate floored at 0.
+        hist.update(&[iface("eth0", 1_000, 1_000)], 1.0);
+        assert_eq!(hist.history["eth0"].0, vec![0.0]);
+        assert_eq!(hist.history["eth0"].1, vec![0.0]);
+    }
+
+    #[test]
+    fn bandwidth_history_caps_samples_and_drops_stale_ifaces() {
+        let mut hist = BandwidthHistory::new(2);
+        for n in 1..=5u64 {
+            hist.update(&[iface("eth0", n * 1_000, n * 1_000)], 1.0);
+        }
+        assert_eq!(hist.history["eth0"].0.len(), 2);
+
+        // eth0 disappears, wlan0 appears -> stale entry pruned.
+        hist.update(&[iface("wlan0", 100, 100)], 1.0);
+        assert!(!hist.history.contains_key("eth0"));
+        assert!(hist.history.contains_key("wlan0"));
     }
 }

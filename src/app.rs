@@ -24,7 +24,7 @@ impl Tab {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SortColumn {
     Protocol,
     LocalAddr,
@@ -190,9 +190,7 @@ impl App {
                     || c.remote_port.to_string().contains(&f)
                     || c.state.label().to_lowercase().contains(&f)
                     || c.process_name.to_lowercase().contains(&f)
-                    || c.pid
-                        .map(|p| p.to_string().contains(&f))
-                        .unwrap_or(false)
+                    || c.pid.map(|p| p.to_string().contains(&f)).unwrap_or(false)
             })
             .collect()
     }
@@ -240,5 +238,170 @@ impl App {
     pub fn page_down(&mut self) {
         let max = self.filtered_connections().len().saturating_sub(1);
         self.scroll_offset = (self.scroll_offset + 20).min(max);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interfaces::Interface;
+    use crate::procnet::{Connection, TcpState};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn conn(proto: &'static str, port: u16, state: TcpState, name: &str) -> Connection {
+        Connection {
+            protocol: proto,
+            local_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            local_port: port,
+            remote_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            remote_port: 0,
+            state,
+            inode: 0,
+            pid: Some(port as u32),
+            process_name: name.to_string(),
+        }
+    }
+
+    fn iface(name: &str, rx_rate: f64, tx_rate: f64) -> Interface {
+        Interface {
+            name: name.to_string(),
+            ip_addrs: Vec::new(),
+            state: "up".to_string(),
+            rx_bytes: 0,
+            tx_bytes: 0,
+            rx_rate,
+            tx_rate,
+            is_tailscale: false,
+        }
+    }
+
+    /// Build an App without touching the filesystem or external commands.
+    fn test_app(connections: Vec<Connection>, interfaces: Vec<Interface>) -> App {
+        App {
+            tab: Tab::Connections,
+            interfaces,
+            connections,
+            dns_config: DnsConfig {
+                servers: Vec::new(),
+                search_domains: Vec::new(),
+                source: String::new(),
+            },
+            tailscale_status: TailscaleStatus {
+                available: false,
+                self_ip: String::new(),
+                self_name: String::new(),
+                peers: Vec::new(),
+                raw_output: String::new(),
+                error: None,
+            },
+            bandwidth_history: BandwidthHistory::new(60),
+            sort_column: SortColumn::State,
+            sort_ascending: true,
+            filter: String::new(),
+            filter_active: false,
+            scroll_offset: 0,
+            last_update: Instant::now(),
+            prev_bytes: HashMap::new(),
+            ipv4_addrs: HashMap::new(),
+            tailscale_refresh_counter: 0,
+        }
+    }
+
+    #[test]
+    fn sort_column_cycles_through_all_and_wraps() {
+        let mut col = SortColumn::Protocol;
+        let seen: Vec<SortColumn> = (0..6)
+            .map(|_| {
+                let c = col;
+                col = col.next();
+                c
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                SortColumn::Protocol,
+                SortColumn::LocalAddr,
+                SortColumn::RemoteAddr,
+                SortColumn::State,
+                SortColumn::Pid,
+                SortColumn::Process,
+            ]
+        );
+        // Wraps back to the start.
+        assert_eq!(col, SortColumn::Protocol);
+    }
+
+    #[test]
+    fn filtered_connections_empty_filter_returns_all() {
+        let app = test_app(
+            vec![
+                conn("TCP", 80, TcpState::Listen, "nginx"),
+                conn("UDP", 53, TcpState::Unknown, "dnsmasq"),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(app.filtered_connections().len(), 2);
+    }
+
+    #[test]
+    fn filtered_connections_matches_process_and_is_case_insensitive() {
+        let mut app = test_app(
+            vec![
+                conn("TCP", 80, TcpState::Listen, "nginx"),
+                conn("UDP", 53, TcpState::Unknown, "dnsmasq"),
+            ],
+            Vec::new(),
+        );
+        app.filter = "NGINX".to_string();
+        let got = app.filtered_connections();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].process_name, "nginx");
+    }
+
+    #[test]
+    fn filtered_connections_matches_port_and_state() {
+        let mut app = test_app(
+            vec![
+                conn("TCP", 8080, TcpState::Listen, "nginx"),
+                conn("TCP", 22, TcpState::Established, "sshd"),
+            ],
+            Vec::new(),
+        );
+        app.filter = "8080".to_string();
+        assert_eq!(app.filtered_connections().len(), 1);
+
+        app.filter = "established".to_string();
+        let got = app.filtered_connections();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].process_name, "sshd");
+    }
+
+    #[test]
+    fn sort_connections_orders_by_process_and_reverses() {
+        let mut app = test_app(
+            vec![
+                conn("TCP", 1, TcpState::Listen, "zebra"),
+                conn("TCP", 2, TcpState::Listen, "alpha"),
+            ],
+            Vec::new(),
+        );
+        app.sort_column = SortColumn::Process;
+        app.sort_ascending = true;
+        app.sort_connections();
+        assert_eq!(app.connections[0].process_name, "alpha");
+
+        app.toggle_sort_order();
+        assert_eq!(app.connections[0].process_name, "zebra");
+    }
+
+    #[test]
+    fn total_rates_sum_across_interfaces() {
+        let app = test_app(
+            Vec::new(),
+            vec![iface("eth0", 100.0, 10.0), iface("wlan0", 50.0, 5.0)],
+        );
+        assert_eq!(app.total_rx_rate(), 150.0);
+        assert_eq!(app.total_tx_rate(), 15.0);
     }
 }

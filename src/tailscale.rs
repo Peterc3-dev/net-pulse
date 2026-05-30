@@ -147,3 +147,43 @@ fn parse_tailscale_output(text: &str) -> Vec<TailscalePeer> {
     }
     peers
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_status_labels() {
+        assert_eq!(PeerStatus::Active.label(), "active");
+        assert_eq!(PeerStatus::Idle.label(), "idle");
+        assert_eq!(PeerStatus::Offline.label(), "offline");
+    }
+
+    #[test]
+    fn parse_output_extracts_peer_fields() {
+        let text = "\
+100.64.0.1   my-laptop   linux   -      active;
+100.64.0.2   phone       android relay  idle;
+";
+        let peers = parse_tailscale_output(text);
+        assert_eq!(peers.len(), 2);
+
+        assert_eq!(peers[0].ip, "100.64.0.1");
+        assert_eq!(peers[0].hostname, "my-laptop");
+        assert_eq!(peers[0].os, "linux");
+        assert_eq!(peers[0].relay, "direct");
+        assert_eq!(peers[0].status, PeerStatus::Active);
+
+        assert_eq!(peers[1].relay, "relay");
+        assert_eq!(peers[1].status, PeerStatus::Idle);
+    }
+
+    #[test]
+    fn parse_output_skips_blank_and_short_lines() {
+        let text = "\n   \n100.64.0.1 host\n100.64.0.2 host2 linux - offline;\n";
+        let peers = parse_tailscale_output(text);
+        // The two-field line is skipped (no OS); only the full line survives.
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].status, PeerStatus::Offline);
+    }
+}
