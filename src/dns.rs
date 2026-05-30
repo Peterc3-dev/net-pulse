@@ -83,7 +83,8 @@ pub fn get_dns_config() -> DnsConfig {
             let mut in_dns_servers = false;
             for line in text.lines() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("DNS Servers:") || trimmed.starts_with("Current DNS Server:") {
+                if trimmed.starts_with("DNS Servers:") || trimmed.starts_with("Current DNS Server:")
+                {
                     in_dns_servers = true;
                     if let Some(addr_part) = trimmed.split(':').nth(1) {
                         let addr = addr_part.trim();
@@ -113,5 +114,31 @@ pub fn get_dns_config() -> DnsConfig {
         servers,
         search_domains,
         source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn label_dns_known_resolvers() {
+        assert_eq!(label_dns("1.1.1.1"), "Cloudflare");
+        assert_eq!(label_dns("8.8.4.4"), "Google");
+        assert_eq!(label_dns("9.9.9.9"), "Quad9");
+        assert_eq!(label_dns("100.100.100.100"), "Tailscale MagicDNS");
+        assert_eq!(label_dns("127.0.0.53"), "systemd-resolved stub");
+    }
+
+    #[test]
+    fn label_dns_private_ranges() {
+        assert_eq!(label_dns("192.168.1.1"), "LAN/Router");
+        assert_eq!(label_dns("10.0.0.1"), "LAN/Router");
+        assert_eq!(label_dns("100.64.0.1"), "Tailscale network");
+    }
+
+    #[test]
+    fn label_dns_falls_back_to_custom() {
+        assert_eq!(label_dns("203.0.113.7"), "Custom");
     }
 }

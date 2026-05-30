@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-
 #[derive(Clone, Debug)]
 pub struct Connection {
     pub protocol: &'static str,
@@ -237,5 +236,73 @@ pub fn format_addr(addr: IpAddr, port: u16) -> String {
                 format!("{}:{}", v4, port)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tcp_state_from_hex_known_and_unknown() {
+        assert_eq!(TcpState::from_hex("01"), TcpState::Established);
+        assert_eq!(TcpState::from_hex("0A"), TcpState::Listen);
+        assert_eq!(TcpState::from_hex("0B"), TcpState::Closing);
+        assert_eq!(TcpState::from_hex("ZZ"), TcpState::Unknown);
+    }
+
+    #[test]
+    fn tcp_state_labels() {
+        assert_eq!(TcpState::Established.label(), "ESTABLISHED");
+        assert_eq!(TcpState::TimeWait.label(), "TIME_WAIT");
+        assert_eq!(TcpState::Unknown.label(), "UNKNOWN");
+    }
+
+    #[test]
+    fn parse_ipv4_port_decodes_le_hex() {
+        // /proc/net/tcp stores the IPv4 address little-endian.
+        // 0100007F = 127.0.0.1, port 0x1F90 = 8080.
+        let (addr, port) = parse_ipv4_port("0100007F:1F90").unwrap();
+        assert_eq!(addr, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        assert_eq!(port, 8080);
+    }
+
+    #[test]
+    fn parse_ipv4_port_rejects_malformed() {
+        assert!(parse_ipv4_port("0100007F").is_none());
+        assert!(parse_ipv4_port("XYZ:1F90").is_none());
+    }
+
+    #[test]
+    fn parse_ipv6_port_decodes_loopback() {
+        // ::1 stored as 4 little-endian words; only the last byte is set.
+        let (addr, port) = parse_ipv6_port("00000000000000000000000001000000:0050").unwrap();
+        assert_eq!(addr, IpAddr::V6(Ipv6Addr::LOCALHOST));
+        assert_eq!(port, 80);
+    }
+
+    #[test]
+    fn parse_ipv6_port_rejects_wrong_length() {
+        assert!(parse_ipv6_port("00:0050").is_none());
+    }
+
+    #[test]
+    fn format_addr_unspecified_v4() {
+        let addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+        assert_eq!(format_addr(addr, 22), "0.0.0.0:22");
+    }
+
+    #[test]
+    fn format_addr_v4_mapped_v6_renders_as_v4() {
+        let mapped = IpAddr::V6(Ipv4Addr::new(10, 0, 0, 5).to_ipv6_mapped());
+        assert_eq!(format_addr(mapped, 443), "10.0.0.5:443");
+    }
+
+    #[test]
+    fn format_addr_v6_unspecified_brackets() {
+        assert_eq!(
+            format_addr(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 53),
+            "[::]:53"
+        );
     }
 }
